@@ -20,7 +20,7 @@ class IndoorDataset(Dataset):
         rot:            [3,3]
         trans:          [3,1]
     """
-    def __init__(self,infos,config,data_augmentation=True):
+    def __init__(self, infos, config, data_augmentation=True):
         super(IndoorDataset,self).__init__()
         self.infos = infos
         self.base_dir = config.root

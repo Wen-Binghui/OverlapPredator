@@ -236,7 +236,7 @@ def get_datasets(config):
 
         train_set = IndoorDataset(info_train,config,data_augmentation=True)
         val_set = IndoorDataset(info_val,config,data_augmentation=False)
-        benchmark_set = IndoorDataset(info_benchmark,config, data_augmentation=False)
+        benchmark_set = IndoorDataset(info_benchmark, config, data_augmentation=False)
     elif(config.dataset == 'kitti'):
         train_set = KITTIDataset(config,'train',data_augmentation=True)
         val_set = KITTIDataset(config,'val',data_augmentation=False)

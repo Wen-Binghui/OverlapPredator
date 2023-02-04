@@ -1,0 +1,1 @@
+/home/wbh/.conda/envs/torch_171_pip/bin/python3 scripts/demo2.py configs/test/3dLomatch.yaml

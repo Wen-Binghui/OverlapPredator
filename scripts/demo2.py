@@ -246,24 +246,20 @@ if __name__ == '__main__':
     
     # create dataset and dataloader
     info_train = load_obj(config.train_info)
-    train_set = IndoorDataset(info_train,config,data_augmentation=True)
-    demo_set = ThreeDMatchDemo(config, config.src_pcd, config.tgt_pcd)
+    #  dict_keys(['rot', 'trans', 'src', 'tgt', 'overlap'])
+    print(info_train['rot'][0], info_train['tgt'][0])
+    # train_set = IndoorDataset(info_train, config, data_augmentation=True)
 
-    _, neighborhood_limits = get_dataloader(dataset=train_set,
-                                        batch_size=config.batch_size,
-                                        shuffle=True,
-                                        num_workers=config.num_workers,
-                                        )
-    demo_loader, _ = get_dataloader(dataset=demo_set,
-                                        batch_size=config.batch_size,
-                                        shuffle=False,
-                                        num_workers=1,
-                                        neighborhood_limits=neighborhood_limits)
+    # demo_loader, neighborhood_limits = get_dataloader(dataset=train_set,
+    #                                     batch_size=config.batch_size,
+    #                                     shuffle=True,
+    #                                     num_workers=config.num_workers,
+    #                                     )
 
-    # load pretrained weights
-    assert config.pretrain != None
-    state = torch.load(config.pretrain)
-    config.model.load_state_dict(state['state_dict'])
+    # # load pretrained weights
+    # assert config.pretrain != None
+    # state = torch.load(config.pretrain)
+    # config.model.load_state_dict(state['state_dict'])
 
-    # do pose estimation
-    main(config, demo_loader)
+    # # do pose estimation
+    # main(config, demo_loader)
