@@ -99,7 +99,7 @@ def lighter(color, percent):
     return color + vector * percent
 
 
-def draw_registration_result(src_raw, tgt_raw, src_overlap, tgt_overlap, src_saliency, tgt_saliency, tsfm):
+def draw_registration_result(src_raw, tgt_raw, src_overlap, tgt_overlap, src_saliency, tgt_saliency, tsfm, src_pcd, tgt_pcd):
     ########################################
     # 1. input point cloud
     src_pcd_before = to_o3d_pcd(src_raw)
@@ -141,10 +141,32 @@ def draw_registration_result(src_raw, tgt_raw, src_overlap, tgt_overlap, src_sal
     vis3.create_window(window_name ='Our registration', width=960, height=540, left=960, top=0)
     vis3.add_geometry(src_pcd_after)
     vis3.add_geometry(tgt_pcd_before)
+
+
+    vis4 = o3d.visualization.Visualizer()
+    vis4.create_window(window_name ='Corres', width=960, height=540, left=960, top=0)
+    vis4.add_geometry(src_pcd)
+    vis4.add_geometry(tgt_pcd)
     
+    #绘制线条
+    src_pcd.transform(tsfm)
+    polygon_points = np.concatenate([np.asarray(src_pcd.points), np.asarray(tgt_pcd.points)], axis = 0)
+    num_kp = len(src_pcd.points)
+    print('num_kp', num_kp)
+    lines = [[idx, idx + num_kp] for idx in range(num_kp)]
+    color = [[1, 0, 0] for i in range(num_kp)] 
+    lines_pcd = o3d.geometry.LineSet()
+    lines_pcd.lines = o3d.utility.Vector2iVector(lines)
+    lines_pcd.colors = o3d.utility.Vector3dVector(color) #线条颜色
+    lines_pcd.points = o3d.utility.Vector3dVector(polygon_points)
+    vis3.add_geometry(lines_pcd)
+
+    vis4.add_geometry(lines_pcd)
+
+
     while True:
         vis1.update_geometry(src_pcd_before)
-        vis3.update_geometry(tgt_pcd_before)
+        vis1.update_geometry(tgt_pcd_before)
         if not vis1.poll_events():
             break
         vis1.update_renderer()
@@ -161,16 +183,23 @@ def draw_registration_result(src_raw, tgt_raw, src_overlap, tgt_overlap, src_sal
             break
         vis3.update_renderer()
 
+        vis4.update_geometry(src_pcd)
+        vis4.update_geometry(tgt_pcd)
+        if not vis4.poll_events():
+            break
+        vis4.update_renderer()
+
     vis1.destroy_window()
     vis2.destroy_window()
     vis3.destroy_window()    
-
+    vis4.destroy_window()    
 
 def main(config, demo_loader):
     config.model.eval()
     c_loader_iter = demo_loader.__iter__()
     with torch.no_grad():
         inputs = c_loader_iter.next()
+        # print(inputs['stack_lengths'])
         ##################################
         # load inputs to device.
         for k, v in inputs.items():  
@@ -213,8 +242,60 @@ def main(config, demo_loader):
         ########################################
         # run ransac and draw registration
         tsfm = ransac_pose_estimation(src_pcd, tgt_pcd, src_feats, tgt_feats, mutual=False)
+        # print(tsfm)
         draw_registration_result(src_raw, tgt_raw, src_overlap, tgt_overlap, src_saliency, tgt_saliency, tsfm)
 
+def one_data(config, inputs):
+    config.model.eval()
+    with torch.no_grad():
+        ##################################
+        # load inputs to device.
+        for k, v in inputs.items():  
+            if type(v) == list:
+                try:
+                    inputs[k] = [item.to(config.device) for item in v]
+                except:
+                    print('kk', inputs[k])
+            else:
+                inputs[k] = v.to(config.device)
+
+        ###############################################
+        # forward pass
+        feats, scores_overlap, scores_saliency = config.model(inputs)  #[N1, C1], [N2, C2]
+        pcd = inputs['points'][0]
+        len_src = inputs['stack_lengths'][0][0]
+        c_rot, c_trans = inputs['rot'], inputs['trans']
+        correspondence = inputs['correspondences']
+        
+        src_pcd, tgt_pcd = pcd[:len_src], pcd[len_src:]
+        src_raw = copy.deepcopy(src_pcd)
+        tgt_raw = copy.deepcopy(tgt_pcd)
+        src_feats, tgt_feats = feats[:len_src].detach().cpu(), feats[len_src:].detach().cpu()
+        src_overlap, src_saliency = scores_overlap[:len_src].detach().cpu(), scores_saliency[:len_src].detach().cpu()
+        tgt_overlap, tgt_saliency = scores_overlap[len_src:].detach().cpu(), scores_saliency[len_src:].detach().cpu()
+
+        ########################################
+        # do probabilistic sampling guided by the score
+        src_scores = src_overlap * src_saliency
+        tgt_scores = tgt_overlap * tgt_saliency
+
+        if(src_pcd.size(0) > config.n_points):
+            idx = np.arange(src_pcd.size(0))
+            probs = (src_scores / src_scores.sum()).numpy().flatten()
+            idx = np.random.choice(idx, size= config.n_points, replace=False, p=probs)
+            src_pcd, src_feats = src_pcd[idx], src_feats[idx]
+        if(tgt_pcd.size(0) > config.n_points):
+            idx = np.arange(tgt_pcd.size(0))
+            probs = (tgt_scores / tgt_scores.sum()).numpy().flatten()
+            idx = np.random.choice(idx, size= config.n_points, replace=False, p=probs)
+            tgt_pcd, tgt_feats = tgt_pcd[idx], tgt_feats[idx]
+
+        ########################################
+        # run ransac and draw registration
+        tsfm, corre_src_pcd, corre_tgt_pcd = ransac_pose_estimation(src_pcd, tgt_pcd, src_feats, tgt_feats, mutual=False)
+        draw_registration_result(src_raw, tgt_raw, src_overlap, tgt_overlap, src_saliency, tgt_saliency, tsfm, corre_src_pcd, corre_tgt_pcd)
+
+        return tsfm, src_pcd, tgt_pcd
 
 if __name__ == '__main__':
     # load configs
@@ -246,20 +327,30 @@ if __name__ == '__main__':
     
     # create dataset and dataloader
     info_train = load_obj(config.train_info)
-    #  dict_keys(['rot', 'trans', 'src', 'tgt', 'overlap'])
-    print(info_train['rot'][0], info_train['tgt'][0])
-    # train_set = IndoorDataset(info_train, config, data_augmentation=True)
 
-    # demo_loader, neighborhood_limits = get_dataloader(dataset=train_set,
-    #                                     batch_size=config.batch_size,
-    #                                     shuffle=True,
-    #                                     num_workers=config.num_workers,
-    #                                     )
+    train_set = IndoorDataset(info_train, config, data_augmentation=False)
 
-    # # load pretrained weights
-    # assert config.pretrain != None
-    # state = torch.load(config.pretrain)
-    # config.model.load_state_dict(state['state_dict'])
+    demo_loader, neighborhood_limits = get_dataloader(dataset=train_set,
+                                        batch_size=1,
+                                        shuffle=False,
+                                        num_workers=config.num_workers,
+                                        )
 
-    # # do pose estimation
-    # main(config, demo_loader)
+    # load pretrained weights
+    assert config.pretrain != None
+    state = torch.load(config.pretrain)
+    config.model.load_state_dict(state['state_dict'])
+
+
+
+    print('\n\n\n\n\n\n\n\n Start!!!!!!')
+
+    # do pose estimation
+    for i, input in enumerate(demo_loader):
+        print(info_train['src'][i], info_train['tgt'][i])
+        print(info_train['rot'][i], info_train['trans'][i])
+        tsfm, src_pcd, tgt_pcd = one_data(config, input)
+        print(tsfm)
+        if i>3:
+            break
+    

@@ -39,10 +39,10 @@ class IndoorDataset(Dataset):
         # get transformation
         rot=self.infos['rot'][item]
         trans=self.infos['trans'][item]
-
+        # print(item)
         # get pointcloud
-        src_path=os.path.join(self.base_dir,self.infos['src'][item])
-        tgt_path=os.path.join(self.base_dir,self.infos['tgt'][item])
+        src_path=os.path.join(self.base_dir, self.infos['src'][item])
+        tgt_path=os.path.join(self.base_dir, self.infos['tgt'][item])
         src_pcd = torch.load(src_path)
         tgt_pcd = torch.load(tgt_path)
 
@@ -82,4 +82,4 @@ class IndoorDataset(Dataset):
         rot = rot.astype(np.float32)
         trans = trans.astype(np.float32)
         
-        return src_pcd,tgt_pcd,src_feats,tgt_feats,rot,trans, correspondences, src_pcd, tgt_pcd, torch.ones(1)
+        return src_pcd, tgt_pcd, src_feats, tgt_feats, rot, trans, correspondences, src_pcd, tgt_pcd, torch.ones(1), [src_path, tgt_path]

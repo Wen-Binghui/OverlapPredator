@@ -72,16 +72,18 @@ def collate_fn_descriptor(list_data, config, neighborhood_limits):
     batched_points_list = []
     batched_features_list = []
     batched_lengths_list = []
+    paths_list = []
     assert len(list_data) == 1
     
-    for ind, (src_pcd,tgt_pcd,src_feats,tgt_feats,rot,trans,matching_inds, src_pcd_raw, tgt_pcd_raw, sample) in enumerate(list_data):
+    for ind, (src_pcd, tgt_pcd, src_feats, tgt_feats, rot, trans, matching_inds, src_pcd_raw, tgt_pcd_raw, sample, paths) in enumerate(list_data):
         batched_points_list.append(src_pcd)
         batched_points_list.append(tgt_pcd)
         batched_features_list.append(src_feats)
         batched_features_list.append(tgt_feats)
         batched_lengths_list.append(len(src_pcd))
         batched_lengths_list.append(len(tgt_pcd))
-    
+        paths_list.append(paths)
+
     batched_features = torch.from_numpy(np.concatenate(batched_features_list, axis=0))
     batched_points = torch.from_numpy(np.concatenate(batched_points_list, axis=0))
     batched_lengths = torch.from_numpy(np.array(batched_lengths_list)).int()
@@ -189,7 +191,8 @@ def collate_fn_descriptor(list_data, config, neighborhood_limits):
         'correspondences': matching_inds,
         'src_pcd_raw': torch.from_numpy(src_pcd_raw).float(),
         'tgt_pcd_raw': torch.from_numpy(tgt_pcd_raw).float(),
-        'sample': sample
+        'sample': sample,
+        'path': paths_list
     }
 
     return dict_inputs
@@ -251,10 +254,11 @@ def get_datasets(config):
 
 
 
-def get_dataloader(dataset, batch_size=1, num_workers=4, shuffle=True, neighborhood_limits=None):
+def get_dataloader(dataset, batch_size=1, num_workers=4, shuffle=False, neighborhood_limits=None):
     if neighborhood_limits is None:
         neighborhood_limits = calibrate_neighbors(dataset, dataset.config, collate_fn=collate_fn_descriptor)
-    print("neighborhood:", neighborhood_limits)
+
+    print('neighborhood_limits', neighborhood_limits)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
@@ -264,6 +268,7 @@ def get_dataloader(dataset, batch_size=1, num_workers=4, shuffle=True, neighborh
         collate_fn=partial(collate_fn_descriptor, config=dataset.config, neighborhood_limits=neighborhood_limits),
         drop_last=False
     )
+
     return dataloader, neighborhood_limits
 
 

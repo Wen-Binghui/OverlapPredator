@@ -190,25 +190,34 @@ def ransac_pose_estimation(src_pcd, tgt_pcd, src_feat, tgt_feat, mutual = False,
     We follow D3Feat to set ransac_n = 3 for 3DMatch and ransac_n = 4 for KITTI. 
     For 3DMatch dataset, we observe significant improvement after changing ransac_n from 4 to 3.
     """
+    corre_src_pcd = o3d.geometry.PointCloud()
+    corre_tgt_pcd = o3d.geometry.PointCloud()
+    if(torch.cuda.device_count()>=1):
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
+
     if(mutual):
-        if(torch.cuda.device_count()>=1):
-            device = torch.device('cuda')
-        else:
-            device = torch.device('cpu')
         src_feat, tgt_feat = to_tensor(src_feat), to_tensor(tgt_feat)
         scores = torch.matmul(src_feat.to(device), tgt_feat.transpose(0,1).to(device)).cpu()
         selection = mutual_selection(scores[None,:,:])[0]
         row_sel, col_sel = np.where(selection)
-        corrs = o3d.utility.Vector2iVector(np.array([row_sel,col_sel]).T)
+        corrs = o3d.utility.Vector2iVector(np.array([row_sel, col_sel]).T)
+        
         src_pcd = to_o3d_pcd(src_pcd)
         tgt_pcd = to_o3d_pcd(tgt_pcd)
         result_ransac = o3d.pipelines.registration.registration_ransac_based_on_correspondence(
-            source=src_pcd, target=tgt_pcd,corres=corrs, 
+            source=src_pcd, target=tgt_pcd, corres=corrs, 
             max_correspondence_distance=distance_threshold,
-            estimation_method=o3d.registration.TransformationEstimationPointToPoint(False),
+            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
             ransac_n=4,
-            criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(50000, 1000))
+            criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(50000, 1000))  
+              
+        corre_src_pcd.points = o3d.utility.Vector3dVector(np.asarray(src_pcd.points)[row_sel])
+        corre_tgt_pcd.points = o3d.utility.Vector3dVector(np.asarray(tgt_pcd.points)[col_sel])
+
     else:
+        # print(src_pcd.shape, tgt_pcd.shape, src_feat.shape, tgt_feat.shape)
         src_pcd = to_o3d_pcd(src_pcd)
         tgt_pcd = to_o3d_pcd(tgt_pcd)
         src_feats = to_o3d_feats(src_feat)
@@ -222,8 +231,18 @@ def ransac_pose_estimation(src_pcd, tgt_pcd, src_feat, tgt_feat, mutual = False,
             ],
             o3d.pipelines.registration.RANSACConvergenceCriteria(50000, 1000)
         )
-            
-    return result_ransac.transformation
+
+        #: added 
+        src_feat, tgt_feat = to_tensor(src_feat), to_tensor(tgt_feat)
+        scores = torch.matmul(src_feat.to(device), tgt_feat.transpose(0,1).to(device)).cpu()
+        selection = mutual_selection(scores[None,:,:])[0]
+        row_sel, col_sel = np.where(selection)
+        corre_src_pcd.points = o3d.utility.Vector3dVector(np.asarray(src_pcd.points)[row_sel])
+        corre_tgt_pcd.points = o3d.utility.Vector3dVector(np.asarray(tgt_pcd.points)[col_sel])
+        # corre_src_pcd.points = o3d.utility.Vector3dVector(np.asarray(src_pcd.points))
+        # corre_tgt_pcd.points = o3d.utility.Vector3dVector(np.asarray(tgt_pcd.points))
+
+    return result_ransac.transformation, corre_src_pcd, corre_tgt_pcd
 
 def get_inlier_ratio(src_pcd, tgt_pcd, src_feat, tgt_feat, rot, trans, inlier_distance_threshold = 0.1):
     """
