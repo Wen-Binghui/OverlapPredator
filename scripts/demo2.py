@@ -4,7 +4,7 @@ Scripts for pairwise registration demo
 Author: Shengyu Huang
 Last modified: 22.02.2021
 """
-import os, torch, time, shutil, json,glob,sys,copy, argparse
+import os, torch, time, shutil, json,glob, sys,copy, argparse, cv2
 import numpy as np
 from easydict import EasyDict as edict
 from torch.utils.data import Dataset
@@ -292,10 +292,10 @@ def one_data(config, inputs):
 
         ########################################
         # run ransac and draw registration
-        tsfm, corre_src_pcd, corre_tgt_pcd = ransac_pose_estimation(src_pcd, tgt_pcd, src_feats, tgt_feats, mutual=False)
-        draw_registration_result(src_raw, tgt_raw, src_overlap, tgt_overlap, src_saliency, tgt_saliency, tsfm, corre_src_pcd, corre_tgt_pcd)
+        tsfm, corre_src_pcd, corre_tgt_pcd, src_feat, tgt_feat = ransac_pose_estimation(src_pcd, tgt_pcd, src_feats, tgt_feats, mutual=False)
+        # draw_registration_result(src_raw, tgt_raw, src_overlap, tgt_overlap, src_saliency, tgt_saliency, tsfm, corre_src_pcd, corre_tgt_pcd)
 
-        return tsfm, src_pcd, tgt_pcd
+        return tsfm, src_pcd, tgt_pcd, corre_src_pcd, corre_tgt_pcd, src_feat, tgt_feat
 
 if __name__ == '__main__':
     # load configs
@@ -342,15 +342,39 @@ if __name__ == '__main__':
     config.model.load_state_dict(state['state_dict'])
 
 
-
-    print('\n\n\n\n\n\n\n\n Start!!!!!!')
-
+    print('\n\n\n\n\n\n\n\n Start!!!!!!', len(demo_loader))
+    dest_folder = 'data/preprocess/predator-nomutual-0514'
     # do pose estimation
+
+
     for i, input in enumerate(demo_loader):
         print(info_train['src'][i], info_train['tgt'][i])
-        print(info_train['rot'][i], info_train['trans'][i])
-        tsfm, src_pcd, tgt_pcd = one_data(config, input)
-        print(tsfm)
-        if i>3:
-            break
+        # print(info_train['rot'][i], info_train['trans'][i])
+        tsfm, src_pcd, tgt_pcd, corre_src_pcd, corre_tgt_pcd, src_feat, tgt_feat = one_data(config, input)
+
+
+        id_src = info_train['src'][i].split('bin_')[-1].split('.')[0]
+        id_tgt = info_train['tgt'][i].split('bin_')[-1].split('.')[0]
+        sub_folder = info_train['src'][i].split('/cloud')[0].split('/')[-1]
+        print(id_src, id_tgt, sub_folder)
+        save_in_folder = os.path.join(dest_folder, sub_folder)
+        if not os.path.exists(save_in_folder):
+            os.makedirs(save_in_folder)
+
+        o3d.io.write_point_cloud(os.path.join(save_in_folder, f"{id_src}_{id_tgt}_src.pcd"), corre_src_pcd)
+        o3d.io.write_point_cloud(os.path.join(save_in_folder, f"{id_src}_{id_tgt}_tgt.pcd"), corre_tgt_pcd)
+        np.save(f"{save_in_folder}/{id_src}_{id_tgt}_feature_src.npy", src_feat)
+        np.save(f"{save_in_folder}/{id_src}_{id_tgt}_feature_tgt.npy", tgt_feat)
+
+        gt_ = np.eye(4)
+        gt_[:3, :3] = info_train['rot'][i]
+        gt_[:3, 3] = info_train['trans'][i].reshape(-1)
+        gt_ = np.linalg.inv(gt_)
+
+        cv_file = cv2.FileStorage(f"{save_in_folder}/{id_src}_{id_tgt}.yaml", cv2.FILE_STORAGE_WRITE)
+        cv_file.write("transform", gt_)
+        cv_file.write("noise_bound", 0.1)
+        cv_file.write("src_path", f"{id_src}_{id_tgt}_src.pcd")
+        cv_file.write("tgt_path", f"{id_src}_{id_tgt}_tgt.pcd")
+
     

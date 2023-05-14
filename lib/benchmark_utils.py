@@ -210,7 +210,7 @@ def ransac_pose_estimation(src_pcd, tgt_pcd, src_feat, tgt_feat, mutual = False,
             source=src_pcd, target=tgt_pcd, corres=corrs, 
             max_correspondence_distance=distance_threshold,
             estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
-            ransac_n=4,
+            ransac_n=3,
             criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(50000, 1000))  
               
         corre_src_pcd.points = o3d.utility.Vector3dVector(np.asarray(src_pcd.points)[row_sel])
@@ -235,14 +235,17 @@ def ransac_pose_estimation(src_pcd, tgt_pcd, src_feat, tgt_feat, mutual = False,
         #: added 
         src_feat, tgt_feat = to_tensor(src_feat), to_tensor(tgt_feat)
         scores = torch.matmul(src_feat.to(device), tgt_feat.transpose(0,1).to(device)).cpu()
-        selection = mutual_selection(scores[None,:,:])[0]
-        row_sel, col_sel = np.where(selection)
+        # selection = mutual_selection(scores[None,:,:])[0]
+        # row_sel, col_sel = np.where(selection)
+        row_sel = np.argmax(scores, axis = 0)
+        col_sel = np.argmax(scores, axis = 1)
         corre_src_pcd.points = o3d.utility.Vector3dVector(np.asarray(src_pcd.points)[row_sel])
         corre_tgt_pcd.points = o3d.utility.Vector3dVector(np.asarray(tgt_pcd.points)[col_sel])
-        # corre_src_pcd.points = o3d.utility.Vector3dVector(np.asarray(src_pcd.points))
-        # corre_tgt_pcd.points = o3d.utility.Vector3dVector(np.asarray(tgt_pcd.points))
-
-    return result_ransac.transformation, corre_src_pcd, corre_tgt_pcd
+    src_feat = src_feat.numpy()
+    src_feat = src_feat[row_sel]
+    tgt_feat = tgt_feat.numpy()[col_sel]
+    tgt_feat = tgt_feat[col_sel]
+    return result_ransac.transformation, corre_src_pcd, corre_tgt_pcd, src_feat, tgt_feat
 
 def get_inlier_ratio(src_pcd, tgt_pcd, src_feat, tgt_feat, rot, trans, inlier_distance_threshold = 0.1):
     """
